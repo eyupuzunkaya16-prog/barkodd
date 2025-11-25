@@ -5,6 +5,11 @@ import { Scanner, ScannerHandle } from './components/Scanner';
 import { Button } from './components/Button';
 import { ScannedItem, AppView, AppSettings } from './types';
 
+// Helper for safe ID generation (Works on all Android WebViews)
+const generateId = () => {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+};
+
 // Lock Screen Component
 const LockScreen = ({ onUnlock, isSettingPin = false, onSetPin }: { onUnlock: (pin: string) => void, isSettingPin?: boolean, onSetPin?: (pin: string) => void }) => {
     const [pin, setPin] = useState("");
@@ -285,65 +290,73 @@ const App: React.FC = () => {
 
   // Handle successful scan
   const handleScan = useCallback((barcode: string, result: any) => {
-    // Handling for BROWSER mode
-    if (view === AppView.BROWSER) {
-        setBrowserBarcode(barcode);
-        return;
-    }
-
-    // Handling for SCANNER (Inventory) mode
-    const now = Date.now();
-    const newItem: ScannedItem = {
-        id: crypto.randomUUID(),
-        barcode: barcode,
-        format: result?.result?.format?.formatName || 'MANUAL/UNKNOWN',
-        timestamp: now,
-    };
-
-    setItems(prev => {
-        const lastItem = prev[prev.length - 1];
-        
-        // Anti-bounce for session items (Reduced to 1s for better feel)
-        if (lastItem && lastItem.barcode === barcode && (now - lastItem.timestamp < 1000)) {
-            return prev;
+    try {
+        // Handling for BROWSER mode
+        if (view === AppView.BROWSER) {
+            setBrowserBarcode(barcode);
+            return;
         }
 
-        if (!settings.allowDuplicates) {
-            const exists = prev.some(item => item.barcode === barcode);
-            if (exists) {
-                // Visual feedback even if duplicate ignored
-                setLastScanned(barcode + " (Tekrar)");
-                 if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-                scanTimeoutRef.current = setTimeout(() => setLastScanned(null), 2000);
+        // Handling for SCANNER (Inventory) mode
+        const now = Date.now();
+        // SAFE ID GENERATION REPLACEMENT
+        const newId = generateId();
+
+        const newItem: ScannedItem = {
+            id: newId,
+            barcode: barcode,
+            format: result?.result?.format?.formatName || 'MANUAL/UNKNOWN',
+            timestamp: now,
+        };
+
+        setItems(prev => {
+            const lastItem = prev[prev.length - 1];
+            
+            // Anti-bounce for session items (Reduced to 1s for better feel)
+            if (lastItem && lastItem.barcode === barcode && (now - lastItem.timestamp < 1000)) {
                 return prev;
             }
+
+            if (!settings.allowDuplicates) {
+                const exists = prev.some(item => item.barcode === barcode);
+                if (exists) {
+                    // Visual feedback even if duplicate ignored
+                    setLastScanned(barcode + " (Tekrar)");
+                    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+                    scanTimeoutRef.current = setTimeout(() => setLastScanned(null), 2000);
+                    return prev;
+                }
+            }
+
+            // Show visual feedback toast for successful scan
+            setLastScanned(barcode);
+            if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+            scanTimeoutRef.current = setTimeout(() => setLastScanned(null), 2000);
+            
+            return [...prev, newItem];
+        });
+
+        // Update History (Persistent)
+        if (settings.history) {
+            setHistory(prev => {
+                const lastHistoryItem = prev[0];
+                if (lastHistoryItem && lastHistoryItem.barcode === barcode && (now - lastHistoryItem.timestamp < 1000)) {
+                    return prev;
+                }
+                return [newItem, ...prev];
+            });
         }
 
-        // Show visual feedback toast for successful scan
-        setLastScanned(barcode);
-        if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-        scanTimeoutRef.current = setTimeout(() => setLastScanned(null), 2000);
-        
-        return [...prev, newItem];
-    });
-
-    // Update History (Persistent)
-    if (settings.history) {
-        setHistory(prev => {
-             const lastHistoryItem = prev[0];
-             if (lastHistoryItem && lastHistoryItem.barcode === barcode && (now - lastHistoryItem.timestamp < 1000)) {
-                 return prev;
-             }
-             return [newItem, ...prev];
-        });
-    }
-
-    // Handle Batch Scan Setting
-    if (!settings.batchScan && view === AppView.SCANNER) {
-        // Slight delay to allow user to see the "Scanned" toast
-        setTimeout(() => {
-             setView(AppView.LIST);
-        }, 500);
+        // Handle Batch Scan Setting
+        if (!settings.batchScan && view === AppView.SCANNER) {
+            // Slight delay to allow user to see the "Scanned" toast
+            setTimeout(() => {
+                setView(AppView.LIST);
+            }, 500);
+        }
+    } catch (error) {
+        console.error("Scan handling error:", error);
+        alert("Barkod işlenirken bir hata oluştu.");
     }
   }, [view, settings.allowDuplicates, settings.batchScan, settings.history]);
 

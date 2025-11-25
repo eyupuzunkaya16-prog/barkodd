@@ -57,32 +57,41 @@ export const Scanner = forwardRef<ScannerHandle, ScannerProps>(({
         // Controlled via props
     },
     scanImage: async (file: File) => {
-        if (!scannerRef.current) {
-             const html5QrCode = new Html5Qrcode("reader");
-             try {
-                const result = await html5QrCode.scanFileV2(file, true);
-                if (result) {
-                    playBeep();
-                    if(vibrateEnabled && navigator.vibrate) navigator.vibrate(50);
-                    onScan(result.decodedText, result);
-                }
-             } catch (err) {
-                 alert("Görselde barkod bulunamadı.");
-                 console.error(err);
-             }
-             return;
-        }
+        // Create a unique temporary ID for file scanning to avoid conflicts with live camera
+        const tempId = `file-scanner-${Date.now()}`;
+        const tempDiv = document.createElement("div");
+        tempDiv.id = tempId;
+        // IMPORTANT: 'display: none' prevents scanning in some rendering engines.
+        // Using off-screen absolute positioning is safer.
+        tempDiv.style.position = "absolute";
+        tempDiv.style.left = "-9999px";
+        tempDiv.style.top = "0";
+        document.body.appendChild(tempDiv);
 
         try {
-            const result = await scannerRef.current.scanFileV2(file, true);
-            if (result) {
+            // Instantiate a fresh scanner specifically for this file
+            const fileScanner = new Html5Qrcode(tempId, false);
+            
+            // Scan the file
+            const result = await fileScanner.scanFileV2(file, true);
+            
+            if (result && result.decodedText) {
                 playBeep();
                 if(vibrateEnabled && navigator.vibrate) navigator.vibrate(50);
                 onScan(result.decodedText, result);
             }
+            
+            // Clean up scanner instance
+            await fileScanner.clear();
         } catch (err) {
-            alert("Görselde barkod bulunamadı.");
             console.error("File scan error", err);
+            alert("Görselde barkod bulunamadı. Lütfen barkodun net ve aydınlık olduğundan emin olun.");
+        } finally {
+            // Remove temp element from DOM
+            const node = document.getElementById(tempId);
+            if (node) {
+                document.body.removeChild(node);
+            }
         }
     }
   }));
@@ -168,24 +177,25 @@ export const Scanner = forwardRef<ScannerHandle, ScannerProps>(({
 
         // Configuration
         const config = {
-            fps: 15, // Standart FPS
-            // Barkodlar genellikle yataydır, bu yüzden geniş bir dikdörtgen daha iyi sonuç verir
+            fps: 15,
             qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
                 const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
                 return {
-                    width: Math.floor(viewfinderWidth * 0.8), // Genişlik %80
-                    height: Math.floor(minEdge * 0.4) // Yükseklik %40 (Dikdörtgen)
+                    width: Math.floor(viewfinderWidth * 0.8),
+                    height: Math.floor(minEdge * 0.4)
                 };
             },
-            aspectRatio: undefined, // Native aspect ratio kullanılsın
+            aspectRatio: undefined,
             experimentalFeatures: {
                 useBarCodeDetectorIfSupported: true
             },
             videoConstraints: {
                 facingMode: { ideal: "environment" },
-                width: { min: 640, ideal: 1280, max: 1920 }, // Yüksek çözünürlük
-                height: { min: 480, ideal: 720, max: 1080 },
-                focusMode: "continuous" // Odaklama için kritik
+                // Android WebView için daha esnek çözünürlük ayarları
+                // width/height zorlaması bazen başlatma hatasına neden olabilir
+                width: { min: 480, ideal: 1280 }, 
+                height: { min: 480, ideal: 720 },
+                focusMode: "continuous"
             },
             formatsToSupport: [
                 Html5QrcodeSupportedFormats.QR_CODE,
@@ -207,7 +217,6 @@ export const Scanner = forwardRef<ScannerHandle, ScannerProps>(({
         try {
             const devices = await Html5Qrcode.getCameras();
             if (devices && devices.length > 0) {
-                // "back" veya "arka" isminde kamera ara
                 const backCamera = devices.find(d => 
                     d.label.toLowerCase().includes('back') || 
                     d.label.toLowerCase().includes('arka') ||
@@ -238,6 +247,7 @@ export const Scanner = forwardRef<ScannerHandle, ScannerProps>(({
         if (isMounted) setHasPermission(true);
       } catch (err: any) {
         console.error("Error starting scanner", err);
+        // Eğer HD başlatılamazsa, basit konfigürasyonla tekrar dene (Fallback)
         if (isMounted) {
             setHasPermission(false);
         }
@@ -315,7 +325,7 @@ export const Scanner = forwardRef<ScannerHandle, ScannerProps>(({
                     className="w-full max-w-xs bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold active:scale-95 transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2"
                 >
                     <Camera className="w-5 h-5" />
-                    Tekrar Dene
+                    Tekrar Dene (Zorla)
                 </button>
             </div>
         )}
