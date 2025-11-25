@@ -1,0 +1,7 @@
+{
+  "name": "BarkodX - Akıllı Envanter",
+  "description": "Hızlı barkod okuma, Excel'e aktarma ve yapay zeka destekli envanter analizi uygulaması.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
